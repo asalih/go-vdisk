@@ -4,42 +4,37 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
+	"errors"
 	"io"
 )
 
 type SparseDisk struct {
-	fh           io.ReadSeeker
-	parent       *VMDK
-	offset       int64
-	sectorOffset int64
-	size         int64
-	sectorCount  int64
-	isSESparse   bool
-	header       *SparseExtentHeader
-	descriptor   *DiskDescriptor
+	fh io.ReadSeeker
 
+	parent         *VMDK
+	offset         int64
+	sectorOffset   int64
+	size           int64
+	sectorCount    int64
+	isSESparse     bool
+	header         *SparseExtentHeader
+	descriptor     *DiskDescriptor
 	grainDirectory []uint64
 	grainTableSize int64
 }
 
 type run struct {
-	Type   int
-	Count  int
-	Offset int64
-	Parent int64
+	SetFlag bool
+	Type    int
+	Count   int
+	Offset  int64
+	Parent  int64
 }
 
 func NewSparseDisk(fh io.ReadSeeker, parent *VMDK) (*SparseDisk, error) {
 	sd := &SparseDisk{fh: fh, parent: parent}
-	_, err := fh.Seek(0, io.SeekEnd)
-	if err != nil {
-		return nil, err
-	}
-	sd.size, err = fh.Seek(0, io.SeekCurrent)
-	if err != nil {
-		return nil, err
-	}
-	_, err = fh.Seek(0, io.SeekStart)
+	var err error
+	sd.size, err = getSize(fh)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +148,6 @@ func (sd *SparseDisk) ReadSectors(sector int64, count int) ([]byte, error) {
 			if sd.parent == nil {
 				sectorsRead = append(sectorsRead, make([]byte, run.Count*SECTOR_SIZE)...)
 				continue
-
 			}
 
 			data, err := sd.parent.ReadSectors(int64(run.Parent), run.Count)
@@ -272,26 +266,30 @@ func (sd *SparseDisk) getRuns(sector int64, count int) ([]run, error) {
 		readSectorCount := min32(readCount, int(grainSize-grainOffset))
 
 		switch {
-		case rund.Type == 0 && grainSector == 0:
+		case rund.SetFlag && rund.Type == 0 && grainSector == 0:
 			rund.Count += readSectorCount
-		case rund.Type == 1 && grainSector == 1:
+		case rund.SetFlag && rund.Type == 1 && grainSector == 1:
 			rund.Count += readSectorCount
-		case rund.Type > 1 && grainSector == nextGrainSector:
+		case rund.SetFlag && rund.Type > 1 && grainSector == nextGrainSector:
 			nextGrainSector += int(grainSize)
 			rund.Count += readSectorCount
 		default:
-			if rund.Type != 0 {
+			if rund.SetFlag {
 				runs = append(runs, rund)
+				rund = run{}
 			}
 			switch grainSector {
 			case 0:
+				rund.SetFlag = true
 				rund.Type = 0
 				rund.Count += readSectorCount
 				rund.Parent = sd.sectorOffset + readSector
 			case 1:
+				rund.SetFlag = true
 				rund.Type = 1
 				rund.Count += readSectorCount
 			default:
+				rund.SetFlag = true
 				rund.Type = grainSector
 				rund.Offset = grainOffset
 				rund.Count += readSectorCount
@@ -345,7 +343,11 @@ func (sd *SparseDisk) lookupGrainTable(directory int64) ([]uint64, error) {
 		}
 
 		gtblOffset &= 0x00000000FFFFFFFF
-		gtblOffset = sd.header.Raw.GrainOffset() + gtblOffset*uint64(sd.grainTableSize*8)/SECTOR_SIZE
+		hdr, ok := sd.header.AsVMDKSES()
+		if !ok {
+			return nil, errors.New("header is not sesparse")
+		}
+		gtblOffset = hdr.GrainTablesOffset + gtblOffset*uint64(sd.grainTableSize*8)/SECTOR_SIZE
 
 		_, err := sd.fh.Seek(int64(gtblOffset)*SECTOR_SIZE, io.SeekStart)
 		if err != nil {

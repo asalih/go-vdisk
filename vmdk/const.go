@@ -4,7 +4,7 @@ const (
 	SECTOR_SIZE       = 512
 	COWD_MAGIC        = "COWD"
 	VMDK_MAGIC        = "KDMV"
-	SESPARSE_MAGIC    = "SESP"
+	SESPARSE_MAGIC    = "\xbe\xba\xfe\xca"
 	CONFIG_FILE_MAGIC = "# Di"
 
 	SPARSEFLAG_COMPRESSED   = 0x00020000

@@ -1,8 +1,8 @@
 package vmdk
 
 import (
-	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 )
@@ -49,41 +49,42 @@ func NewVMDK(fhs []io.ReadSeeker) (*VMDK, error) {
 
 		switch string(magic) {
 		case CONFIG_FILE_MAGIC:
-			if len(fhs) == 1 {
-				// Handle Disk Descriptor case
-				data, err := io.ReadAll(fh)
+			if len(fhs) != 1 {
+				continue
+			}
+			// Handle Disk Descriptor case
+			data, err := io.ReadAll(fh)
+			if err != nil {
+				return nil, err
+			}
+			vmdk.Descriptor, err = ParseDiskDescriptor(string(data))
+			if err != nil {
+				return nil, err
+			}
+			if vmdk.Descriptor.Attr["parentCID"] != "ffffffff" {
+				vmdk.Parent, err = openParent(vmdk.Descriptor.Attr["parentFileNameHint"])
 				if err != nil {
 					return nil, err
 				}
-				vmdk.Descriptor, err = ParseDiskDescriptor(string(data))
+			}
+			for _, extent := range vmdk.Descriptor.Extents {
+				extentFile, err := FileAccessor(extent.Filename)
 				if err != nil {
 					return nil, err
 				}
-				if vmdk.Descriptor.Attr["parentCID"] != "ffffffff" {
-					vmdk.Parent, err = openParent(vmdk.Descriptor.Attr["parentFileNameHint"])
+				switch extent.ExtentType {
+				case "SPARSE", "VMFSSPARSE", "SESPARSE":
+					sd, err := NewSparseDisk(extentFile, vmdk.Parent)
 					if err != nil {
 						return nil, err
 					}
-				}
-				for _, extent := range vmdk.Descriptor.Extents {
-					extentFile, err := FileAccessor(extent.Filename)
+					vmdk.Disks = append(vmdk.Disks, sd)
+				case "VMFS", "FLAT":
+					rd, err := NewRawDisk(extentFile, extent.Size*SECTOR_SIZE)
 					if err != nil {
 						return nil, err
 					}
-					switch extent.ExtentType {
-					case "SPARSE", "VMFSSPARSE", "SESPARSE":
-						sd, err := NewSparseDisk(extentFile, vmdk.Parent)
-						if err != nil {
-							return nil, err
-						}
-						vmdk.Disks = append(vmdk.Disks, sd)
-					case "VMFS", "FLAT":
-						rd, err := NewRawDisk(extentFile, extent.Size*SECTOR_SIZE)
-						if err != nil {
-							return nil, err
-						}
-						vmdk.Disks = append(vmdk.Disks, rd)
-					}
+					vmdk.Disks = append(vmdk.Disks, rd)
 				}
 			}
 		case COWD_MAGIC, VMDK_MAGIC, SESPARSE_MAGIC:
@@ -123,11 +124,14 @@ func NewVMDK(fhs []io.ReadSeeker) (*VMDK, error) {
 }
 
 func (v *VMDK) ReadSectors(sector int64, count int) ([]byte, error) {
-	var sectorsRead [][]byte
+	var sectorsRead []byte
 
 	diskIdx := bisectRight(v.DiskOffsets, int64(sector))
 
 	for count > 0 {
+		if diskIdx >= len(v.Disks) {
+			return nil, fmt.Errorf("out of bounds disk, disk count: %v, requested: %v", sector, count)
+		}
 		disk := v.Disks[diskIdx]
 		diskRemainingSectors := disk.GetSectorCount() - (int64(sector) - disk.GetSectorOffset())
 		diskSectors := min32(int(diskRemainingSectors), count)
@@ -135,14 +139,14 @@ func (v *VMDK) ReadSectors(sector int64, count int) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		sectorsRead = append(sectorsRead, sectorData)
+		sectorsRead = append(sectorsRead, sectorData...)
 
 		sector += int64(diskSectors)
 		count -= diskSectors
 		diskIdx++
 	}
 
-	return bytes.Join(sectorsRead, nil), nil
+	return sectorsRead, nil
 }
 
 func (v *VMDK) ReadAt(p []byte, offset int64) (int, error) {
