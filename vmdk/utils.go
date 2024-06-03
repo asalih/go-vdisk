@@ -31,13 +31,6 @@ func bisectRight(a []int64, x int64) int {
 	return lo
 }
 
-func min64(a, b int64) int64 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func min32(a, b int) int {
 	if a < b {
 		return a
