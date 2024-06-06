@@ -1,6 +1,7 @@
 package vmdk
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -35,6 +36,9 @@ func ParseDiskDescriptor(data string) (*DiskDescriptor, error) {
 
 		if strings.HasPrefix(line, "RW ") || strings.HasPrefix(line, "RDONLY ") || strings.HasPrefix(line, "NOACCESS ") {
 			parts := strings.SplitN(line, " ", 4)
+			if len(parts) < 4 {
+				return nil, fmt.Errorf("invalid extent line: %s", line)
+			}
 			size, err := strconv.ParseInt(parts[1], 10, 64)
 			if err != nil {
 				return nil, err
@@ -50,6 +54,9 @@ func ParseDiskDescriptor(data string) (*DiskDescriptor, error) {
 		}
 
 		parts := strings.SplitN(line, "=", 2)
+		if len(parts) < 2 {
+			continue
+		}
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
 		value = strings.Trim(value, `"`)
