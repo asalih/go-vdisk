@@ -14,6 +14,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const VHDX_MAGIC = "vhdxfile"
+
 const (
 	ALIGNMENT = 64 * 1024
 	MB        = 1024 * 1024
@@ -89,7 +91,7 @@ func NewVHDX(fh io.ReadSeeker) (*VHDX, error) {
 	if err := binary.Read(fh, binary.LittleEndian, &vhdx.fileIdentifier); err != nil {
 		return nil, err
 	}
-	if !bytes.Equal(vhdx.fileIdentifier.Signature[:], []byte("vhdxfile")) {
+	if !bytes.Equal(vhdx.fileIdentifier.Signature[:], []byte(VHDX_MAGIC)) {
 		return nil, errors.New("invalid file identifier signature")
 	}
 
