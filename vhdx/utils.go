@@ -1,6 +1,9 @@
 package vhdx
 
 import (
+	"unicode/utf16"
+	"unsafe"
+
 	"github.com/google/uuid"
 )
 
@@ -22,6 +25,17 @@ func min32(a, b int) int {
 	return b
 }
 
+func utf16ToString(b []byte) string {
+	if len(b)%2 != 0 {
+		return ""
+	}
+
+	u16s := make([]uint16, len(b)/2)
+	for i := range u16s {
+		u16s[i] = *(*uint16)(unsafe.Pointer(&b[i*2]))
+	}
+	return string(utf16.Decode(u16s))
+}
 func newUUIDFromBytesLE(bytesLe []byte) uuid.UUID {
 	var uuid uuid.UUID
 	copy(uuid[0:4], reverseBytes(bytesLe[0:4]))

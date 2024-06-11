@@ -28,33 +28,37 @@ type ParentLocator struct {
 }
 
 func NewParentLocator(fh io.ReadSeeker) (*ParentLocator, error) {
-	offset, _ := fh.Seek(0, 1)
+	offset, err := fh.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, err
+	}
 	header := ParentLocatorHeader{}
 	if err := binary.Read(fh, binary.LittleEndian, &header); err != nil {
 		return nil, err
 	}
-	typeID := header.LocatorType
+	plEntries := make([]ParentLocatorEntry, header.KeyValueCount)
+	if err := binary.Read(fh, binary.LittleEndian, &plEntries); err != nil {
+		return nil, err
+	}
+
+	typeID := newUUIDFromBytesLE(header.LocatorType[:])
 	entries := make(map[string]string)
-	for i := 0; i < int(header.KeyValueCount); i++ {
-		entry := ParentLocatorEntry{}
-		if err := binary.Read(fh, binary.LittleEndian, &entry); err != nil {
-			return nil, err
-		}
-		key := make([]byte, entry.KeyLength)
-		value := make([]byte, entry.ValueLength)
-		if _, err := fh.Seek(offset+int64(entry.KeyOffset), 0); err != nil {
+	for _, ple := range plEntries {
+		key := make([]byte, ple.KeyLength)
+		value := make([]byte, ple.ValueLength)
+		if _, err := fh.Seek(offset+int64(ple.KeyOffset), 0); err != nil {
 			return nil, err
 		}
 		if _, err := fh.Read(key); err != nil {
 			return nil, err
 		}
-		if _, err := fh.Seek(offset+int64(entry.ValueOffset), 0); err != nil {
+		if _, err := fh.Seek(offset+int64(ple.ValueOffset), 0); err != nil {
 			return nil, err
 		}
 		if _, err := fh.Read(value); err != nil {
 			return nil, err
 		}
-		entries[string(key)] = string(value)
+		entries[utf16ToString(key)] = utf16ToString(value)
 	}
 
 	return &ParentLocator{

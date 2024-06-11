@@ -35,7 +35,7 @@ type MetadataTableEntry struct {
 }
 
 func NewMetadataTable(fh io.ReadSeeker, offset, length int64) (*MetadataTable, error) {
-	if _, err := fh.Seek(offset, 0); err != nil {
+	if _, err := fh.Seek(offset, io.SeekStart); err != nil {
 		return nil, err
 	}
 	header := MetadataTableHeader{}
@@ -60,9 +60,15 @@ func NewMetadataTable(fh io.ReadSeeker, offset, length int64) (*MetadataTable, e
 		}
 		switch itemID {
 		case FILE_PARAMETERS_GUID:
-			fp := FileParameters{}
-			if err := binary.Read(fh, binary.LittleEndian, &fp); err != nil {
+			data := make([]byte, 8)
+			if err := binary.Read(fh, binary.LittleEndian, data); err != nil {
 				return nil, err
+			}
+			tmp := binary.LittleEndian.Uint32(data[4:])
+			fp := FileParameters{
+				BlockSize:           binary.LittleEndian.Uint32(data[0:4]),
+				LeaveBlockAllocated: tmp&1 == 1,
+				HasParent:           (tmp>>1)&1 > 0,
 			}
 			lookup[itemID] = fp
 		case VIRTUAL_DISK_SIZE_GUID:
