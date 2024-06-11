@@ -8,22 +8,57 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/asalih/go-vdisk/vhdx"
 	"github.com/asalih/go-vdisk/vmdk"
 )
 
 func main() {
 
 	sourcePath := flag.String("source", "", "Source path")
+	sourceType := flag.String("type", "", "Source type")
 	flag.Parse()
+
+	switch *sourceType {
+	case "vmdk":
+		openVMDK(*sourcePath)
+	case "vhdx":
+		openVHDX(*sourcePath)
+	}
 
 	fmt.Println("Disk opening: ", os.Args)
 
-	vFile, err := os.Open(*sourcePath)
+}
+
+func openVHDX(sourcePath string) {
+	vFile, err := os.Open(sourcePath)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	vhdx.FileAccessor = func(s string) (io.ReadSeeker, error) {
+		return os.Open(filepath.Join(filepath.Dir(sourcePath), s))
+	}
+
+	vhdxImage, err := vhdx.NewVHDX(vFile)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	buf := make([]byte, 1024)
+	_, err = vhdxImage.ReadAt(buf, 510)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	fmt.Println("Disk size: ", vhdxImage.Size())
+}
+
+func openVMDK(sourcePath string) {
+	vFile, err := os.Open(sourcePath)
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
 	vmdk.FileAccessor = func(s string) (io.ReadSeeker, error) {
-		return os.Open(filepath.Join(filepath.Dir(*sourcePath), s))
+		return os.Open(filepath.Join(filepath.Dir(sourcePath), s))
 	}
 
 	fhs := []io.ReadSeeker{vFile}
