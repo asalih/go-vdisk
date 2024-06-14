@@ -230,13 +230,11 @@ func (vhdx *VHDX) ReadSectors(sector int64, count int64) ([]byte, error) {
 			}
 
 			relativeSector := int64(0)
-			iterator := partialRunIter(sectorBitmap, bitIdx, int64(readCount))
-			for iterator.Next() {
-				run := iterator.value
+			err = partialRunIter(sectorBitmap, bitIdx, int64(readCount), func(run *PartialRun) error {
 				if run.Type == 0 {
 					parentData, err := vhdx.parent.ReadSectors(sector+relativeSector, run.Count)
 					if err != nil {
-						return nil, err
+						return err
 					}
 					sectorsRead.Write(parentData)
 				} else {
@@ -244,16 +242,20 @@ func (vhdx *VHDX) ReadSectors(sector int64, count int64) ([]byte, error) {
 					sec := (sectorInBlock + relativeSector) * int64(vhdx.sectorSize)
 					_, err := vhdx.fh.Seek(int64(boff)+int64(sec), io.SeekStart)
 					if err != nil {
-						return nil, err
+						return err
 					}
 					data := make([]byte, run.Count*int64(vhdx.sectorSize))
 					_, err = vhdx.fh.Read(data)
 					if err != nil {
-						return nil, err
+						return err
 					}
 					sectorsRead.Write(data)
 				}
 				relativeSector += run.Count
+				return nil
+			})
+			if err != nil {
+				return nil, err
 			}
 		}
 
