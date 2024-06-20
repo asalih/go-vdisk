@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/asalih/go-vdisk/vhd"
 	"github.com/asalih/go-vdisk/vhdx"
 	"github.com/asalih/go-vdisk/vmdk"
 )
@@ -23,6 +24,8 @@ func main() {
 		openVMDK(*sourcePath)
 	case "vhdx":
 		openVHDX(*sourcePath)
+	case "vhd":
+		openVHD(*sourcePath)
 	}
 
 	fmt.Println("Disk opening: ", os.Args)
@@ -43,13 +46,33 @@ func openVHDX(sourcePath string) {
 		log.Fatalf("%v", err)
 	}
 
-	buf := make([]byte, 1024)
-	_, err = vhdxImage.ReadAt(buf, 510)
+	buf := make([]byte, 8192)
+	_, err = vhdxImage.ReadAt(buf, 0)
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
 
 	fmt.Println("Disk size: ", vhdxImage.Size())
+}
+
+func openVHD(sourcePath string) {
+	vFile, err := os.Open(sourcePath)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	vhdImage, err := vhd.NewVHD(vFile)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	buf := make([]byte, 8192)
+	_, err = vhdImage.ReadAt(buf, 0)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	fmt.Println("Disk size: ", vhdImage.Size())
 }
 
 func openVMDK(sourcePath string) {

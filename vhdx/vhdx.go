@@ -173,22 +173,22 @@ func NewVHDX(fh io.ReadSeeker) (*VHDX, error) {
 	return vhdx, nil
 }
 
-func (vhdx *VHDX) ReadSectors(sector int64, count int64) ([]byte, error) {
+func (v *VHDX) ReadSectors(sector int64, count int64) ([]byte, error) {
 	var sectorsRead bytes.Buffer
 
 	for count > 0 {
-		readCount := min64(count, int64(vhdx.sectorsPerBlock))
-		readSize := readCount * int64(vhdx.sectorSize)
-		block, sectorInBlock := divmod(sector, int64(vhdx.sectorsPerBlock))
-		batEntry, err := vhdx.bat.pb(block)
+		readCount := min64(count, int64(v.sectorsPerBlock))
+		readSize := readCount * int64(v.sectorSize)
+		block, sectorInBlock := divmod(sector, int64(v.sectorsPerBlock))
+		batEntry, err := v.bat.pb(block)
 		if err != nil {
 			return nil, err
 		}
 
 		switch batEntry.State {
 		case PAYLOAD_BLOCK_NOT_PRESENT:
-			if vhdx.parent != nil {
-				parentData, err := vhdx.parent.ReadSectors(sector, readCount)
+			if v.parent != nil {
+				parentData, err := v.parent.ReadSectors(sector, readCount)
 				if err != nil {
 					return nil, err
 				}
@@ -199,53 +199,53 @@ func (vhdx *VHDX) ReadSectors(sector int64, count int64) ([]byte, error) {
 		case PAYLOAD_BLOCK_UNDEFINED, PAYLOAD_BLOCK_ZERO, PAYLOAD_BLOCK_UNMAPPED:
 			sectorsRead.Write(bytes.Repeat([]byte{0x00}, int(readSize)))
 		case PAYLOAD_BLOCK_FULLY_PRESENT:
-			offset := int64((batEntry.FileOffsetMb * MB)) + sectorInBlock*int64(vhdx.sectorSize)
-			_, err := vhdx.fh.Seek(offset, io.SeekStart)
+			offset := int64((batEntry.FileOffsetMb * MB)) + sectorInBlock*int64(v.sectorSize)
+			_, err := v.fh.Seek(offset, io.SeekStart)
 			if err != nil {
 				return nil, err
 			}
 			data := make([]byte, readSize)
-			_, err = vhdx.fh.Read(data)
+			_, err = v.fh.Read(data)
 			if err != nil {
 				return nil, err
 			}
 			sectorsRead.Write(data)
 		case PAYLOAD_BLOCK_PARTIALLY_PRESENT:
-			sectorBitmapEntry, err := vhdx.bat.sb(block)
+			sectorBitmapEntry, err := v.bat.sb(block)
 			if err != nil {
 				return nil, err
 			}
 
-			blockInChunk := block % vhdx.chunkRatio
-			sectorInChunk := (blockInChunk * int64(vhdx.sectorsPerBlock)) + sectorInBlock
+			blockInChunk := block % v.chunkRatio
+			sectorInChunk := (blockInChunk * int64(v.sectorsPerBlock)) + sectorInBlock
 			byteIdx, bitIdx := divmod(sectorInChunk, 8)
 
 			off := int64(sectorBitmapEntry.FileOffsetMb * MB)
-			if _, err := vhdx.fh.Seek(off+int64(byteIdx), 0); err != nil {
+			if _, err := v.fh.Seek(off+int64(byteIdx), 0); err != nil {
 				return nil, err
 			}
 			sectorBitmap := make([]byte, (readCount+8-1)/8)
-			if _, err := vhdx.fh.Read(sectorBitmap); err != nil {
+			if _, err := v.fh.Read(sectorBitmap); err != nil {
 				return nil, err
 			}
 
 			relativeSector := int64(0)
 			err = partialRunIter(sectorBitmap, bitIdx, int64(readCount), func(run *PartialRun) error {
 				if run.Type == 0 {
-					parentData, err := vhdx.parent.ReadSectors(sector+relativeSector, run.Count)
+					parentData, err := v.parent.ReadSectors(sector+relativeSector, run.Count)
 					if err != nil {
 						return err
 					}
 					sectorsRead.Write(parentData)
 				} else {
 					boff := batEntry.FileOffsetMb * MB
-					sec := (sectorInBlock + relativeSector) * int64(vhdx.sectorSize)
-					_, err := vhdx.fh.Seek(int64(boff)+int64(sec), io.SeekStart)
+					sec := (sectorInBlock + relativeSector) * int64(v.sectorSize)
+					_, err := v.fh.Seek(int64(boff)+int64(sec), io.SeekStart)
 					if err != nil {
 						return err
 					}
-					data := make([]byte, run.Count*int64(vhdx.sectorSize))
-					_, err = vhdx.fh.Read(data)
+					data := make([]byte, run.Count*int64(v.sectorSize))
+					_, err = v.fh.Read(data)
 					if err != nil {
 						return err
 					}
