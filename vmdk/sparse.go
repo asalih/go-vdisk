@@ -23,6 +23,11 @@ type SparseDisk struct {
 	grainTableSize int64
 }
 
+type SparseGrainLBAHeader struct {
+	LBA     uint64
+	CmpSize uint32
+}
+
 type run struct {
 	SetFlag bool
 	Type    int
@@ -211,20 +216,28 @@ func (sd *SparseDisk) readCompressedGrain(sector int) ([]byte, error) {
 		return nil, err
 	}
 
-	var compressedLen int
+	var headerLen int
+	var compressedLen uint32
+
 	if sd.header.Raw.IsEmeddedLBA() {
-		compressedLen = int(binary.LittleEndian.Uint32(buf[8:12]))
+		headerLen = 12
+		var lbaHeader SparseGrainLBAHeader
+		if err := binary.Read(bytes.NewReader(buf), binary.LittleEndian, &lbaHeader); err != nil {
+			return nil, err
+		}
+		compressedLen = lbaHeader.CmpSize
 	} else {
-		compressedLen = int(binary.LittleEndian.Uint32(buf[:4]))
+		headerLen = 4
+		compressedLen = binary.LittleEndian.Uint32(buf[:4])
 	}
 
-	if compressedLen+12 > SECTOR_SIZE {
+	if int(compressedLen)+headerLen > SECTOR_SIZE {
 		_, err := sd.fh.Seek(int64(sector+1)*SECTOR_SIZE, io.SeekStart)
 		if err != nil {
 			return nil, err
 		}
 
-		remainingLen := compressedLen + 12 - SECTOR_SIZE
+		remainingLen := headerLen + int(compressedLen-SECTOR_SIZE)
 		nextBuf := make([]byte, remainingLen)
 		_, err = sd.fh.Read(nextBuf)
 		if err != nil {
@@ -233,7 +246,7 @@ func (sd *SparseDisk) readCompressedGrain(sector int) ([]byte, error) {
 		buf = append(buf, nextBuf...)
 	}
 
-	r, err := zlib.NewReader(bytes.NewReader(buf[12 : 12+compressedLen]))
+	r, err := zlib.NewReader(bytes.NewReader(buf[headerLen : headerLen+int(compressedLen)]))
 	if err != nil {
 		return nil, err
 	}
