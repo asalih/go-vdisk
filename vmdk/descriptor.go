@@ -7,10 +7,11 @@ import (
 )
 
 type DiskExtent struct {
-	AccessType string
-	Size       int64
-	ExtentType string
-	Filename   string
+	AccessType  string
+	Size        int64
+	ExtentType  string
+	Filename    string
+	StartSector int64
 }
 
 type DiskDescriptor struct {
@@ -35,7 +36,7 @@ func ParseDiskDescriptor(data string) (*DiskDescriptor, error) {
 		}
 
 		if strings.HasPrefix(line, "RW ") || strings.HasPrefix(line, "RDONLY ") || strings.HasPrefix(line, "NOACCESS ") {
-			parts := strings.SplitN(line, " ", 4)
+			parts := strings.Fields(line)
 			if len(parts) < 4 {
 				return nil, fmt.Errorf("invalid extent line: %s", line)
 			}
@@ -44,11 +45,16 @@ func ParseDiskDescriptor(data string) (*DiskDescriptor, error) {
 				return nil, err
 			}
 			sectors += size
+			var sectorOff int64
+			if len(parts) > 4 {
+				sectorOff, _ = strconv.ParseInt(parts[4], 10, 64)
+			}
 			extents = append(extents, DiskExtent{
-				AccessType: parts[0],
-				Size:       size,
-				ExtentType: parts[2],
-				Filename:   strings.Trim(parts[3], `"`),
+				AccessType:  parts[0],
+				Size:        size,
+				ExtentType:  parts[2],
+				Filename:    strings.Trim(parts[3], `"`),
+				StartSector: sectorOff,
 			})
 			continue
 		}
