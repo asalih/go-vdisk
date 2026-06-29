@@ -19,5 +19,11 @@
 
 # Go workspace file
 go.work
-cmd/testdata/*
 .vscode
+
+# Local diagnostic artifacts
+docs/
+cmd/testdata/
+*.vhd
+*.vhdx
+*.vmdk

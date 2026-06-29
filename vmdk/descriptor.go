@@ -36,7 +36,10 @@ func ParseDiskDescriptor(data string) (*DiskDescriptor, error) {
 		}
 
 		if strings.HasPrefix(line, "RW ") || strings.HasPrefix(line, "RDONLY ") || strings.HasPrefix(line, "NOACCESS ") {
-			parts := strings.Fields(line)
+			parts, err := parseDescriptorFields(line)
+			if err != nil {
+				return nil, err
+			}
 			if len(parts) < 4 {
 				return nil, fmt.Errorf("invalid extent line: %s", line)
 			}
@@ -53,7 +56,7 @@ func ParseDiskDescriptor(data string) (*DiskDescriptor, error) {
 				AccessType:  parts[0],
 				Size:        size,
 				ExtentType:  parts[2],
-				Filename:    strings.Trim(parts[3], `"`),
+				Filename:    parts[3],
 				StartSector: sectorOff,
 			})
 			continue
@@ -80,4 +83,38 @@ func ParseDiskDescriptor(data string) (*DiskDescriptor, error) {
 		Sectors: sectors,
 		Raw:     data,
 	}, nil
+}
+
+func parseDescriptorFields(line string) ([]string, error) {
+	var fields []string
+	var field strings.Builder
+	inQuote := false
+	quoted := false
+
+	flush := func() {
+		if field.Len() == 0 && !quoted {
+			return
+		}
+		fields = append(fields, field.String())
+		field.Reset()
+		quoted = false
+	}
+
+	for _, r := range line {
+		switch {
+		case r == '"':
+			inQuote = !inQuote
+			quoted = true
+		case !inQuote && (r == ' ' || r == '\t'):
+			flush()
+		default:
+			field.WriteRune(r)
+		}
+	}
+	if inQuote {
+		return nil, fmt.Errorf("unterminated quoted field in descriptor line: %s", line)
+	}
+	flush()
+
+	return fields, nil
 }
